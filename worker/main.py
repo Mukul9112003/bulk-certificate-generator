@@ -1,5 +1,5 @@
 import time
-
+from app.certificate.template import CertificateTemplate
 from app.database.connection import SessionLocal
 from app.database.redis import redis_client
 from app.repositories.certificate_repository import CertificateRepository
@@ -48,13 +48,16 @@ def process_certificate(certificate_id: int):
             )
             return
 
-        print("------ Certificate Data ------")
-        print(f"Certificate ID: {certificate.id}")
-        print(f"User: {user.name}")
-        print(f"Email: {user.email}")
-        print(f"Event: {event.name}")
-        print(f"Event Date: {event.event_date}")
-        print("------------------------------")
+        template = CertificateTemplate()
+
+        file_path = template.generate(
+            certificate_id=certificate.id,
+            recipient_name=user.name,
+            event_name=event.name,
+            event_date=str(event.event_date),
+        )
+
+        print(f"Certificate generated: {file_path}")
     finally:
         db.close()
 
