@@ -1,11 +1,10 @@
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from models.user import User
-from repositories.base import UserRepository
+from app.models.user import User
 
 
-class SQLAlchemyUserRepository(UserRepository):
+class UserRepository:
 
     def __init__(self, db: Session):
         self.db = db
@@ -30,20 +29,3 @@ class SQLAlchemyUserRepository(UserRepository):
         result = self.db.execute(statement)
 
         return result.scalar_one_or_none()
-
-    def get_all(self) -> list[User]:
-        statement = select(User)
-
-        result = self.db.execute(statement)
-
-        return list(result.scalars().all())
-
-    def update(self, user: User) -> User:
-        self.db.commit()
-        self.db.refresh(user)
-
-        return user
-
-    def delete(self, user: User) -> None:
-        self.db.delete(user)
-        self.db.commit()

@@ -2,14 +2,14 @@ from fastapi import FastAPI
 from app.routes.event import event_router
 from app.database.connection import engine
 from app.models import *
-
+from app.routes.certificate_job import router as certificate_job_router
 
 app = FastAPI(title="Bulk Certificate Generator")
 
 
 Base.metadata.create_all(bind=engine)
 app.include_router(event_router)
-
+app.include_router(certificate_job_router)
 
 @app.get("/")
 def root():
