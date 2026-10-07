@@ -34,3 +34,8 @@ class CertificateRepository:
         result = self.db.execute(statement)
 
         return result.scalar_one_or_none()
+    def update(self, certificate: Certificate) -> Certificate:
+        self.db.commit()
+        self.db.refresh(certificate)
+
+        return certificate

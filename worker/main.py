@@ -22,7 +22,10 @@ def process_certificate(certificate_id: int):
                 f"Certificate {certificate_id} not found"
             )
             return
+         # Mark certificate as processing
+        certificate.status = "processing"
 
+        repository.update(certificate)
         print(
             f"Processing certificate {certificate.id}"
         )
