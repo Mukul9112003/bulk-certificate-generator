@@ -1,4 +1,4 @@
-import time
+from datetime import datetime, timezone
 from app.certificate.template import CertificateTemplate
 from app.database.connection import SessionLocal
 from app.database.redis import redis_client
@@ -12,12 +12,11 @@ QUEUE_NAME = "certificate_queue"
 def process_certificate(certificate_id: int):
 
     db = SessionLocal()
-
+    certificate_repository = CertificateRepository(db)
     try:
-        repository = CertificateRepository(db)
         user_repository = UserRepository(db)
         event_repository = EventRepository(db)
-        certificate = repository.get_by_id(certificate_id)
+        certificate = certificate_repository.get_by_id(certificate_id)
 
         if certificate is None:
             print(
@@ -27,15 +26,12 @@ def process_certificate(certificate_id: int):
          # Mark certificate as processing
         certificate.status = "processing"
 
-        repository.update(certificate)
+        certificate_repository.update(certificate)
         # Get user
         user = user_repository.get_by_id(certificate.user_id)
 
         if user is None:
-            print(
-                f"User {certificate.user_id} not found"
-            )
-            return
+            raise ValueError(f"User {certificate.user_id} not found")
 
         # Get event
         event = event_repository.get_by_id(
@@ -43,10 +39,7 @@ def process_certificate(certificate_id: int):
         )
 
         if event is None:
-            print(
-                f"Event {certificate.event_id} not found"
-            )
-            return
+            raise ValueError(f"Event {certificate.event_id} not found")
 
         template = CertificateTemplate()
 
@@ -57,7 +50,40 @@ def process_certificate(certificate_id: int):
             event_date=str(event.event_date),
         )
 
-        print(f"Certificate generated: {file_path}")
+       # 6. Mark completed
+        certificate.status = "completed"
+        certificate.s3_key = file_path
+        certificate.completed_at = datetime.now(timezone.utc)
+
+        certificate_repository.update(certificate)
+
+        print(
+            f"Certificate {certificate.id} completed"
+        )
+        print(
+            f"File: {file_path}"
+        )
+    except Exception as error:
+
+            print(f"Certificate {certificate_id} failed: {error}")
+
+            # Try to mark certificate as failed
+            try:
+                certificate = certificate_repository.get_by_id(
+                    certificate_id
+                )
+
+                if certificate is not None:
+                    certificate.status = "failed"
+                    certificate.error_message = str(error)
+
+                    certificate_repository.update(certificate)
+
+            except Exception as update_error:
+                print(
+                    f"Could not update failed certificate: "
+                    f"{update_error}"
+                )
     finally:
         db.close()
 
