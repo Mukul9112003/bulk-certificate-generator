@@ -3,7 +3,8 @@ import time
 from app.database.connection import SessionLocal
 from app.database.redis import redis_client
 from app.repositories.certificate_repository import CertificateRepository
-
+from app.repositories.event_repository import EventRepository
+from app.repositories.user_repository import UserRepository
 
 QUEUE_NAME = "certificate_queue"
 
@@ -14,7 +15,8 @@ def process_certificate(certificate_id: int):
 
     try:
         repository = CertificateRepository(db)
-
+        user_repository = UserRepository(db)
+        event_repository = EventRepository(db)
         certificate = repository.get_by_id(certificate_id)
 
         if certificate is None:
@@ -26,18 +28,33 @@ def process_certificate(certificate_id: int):
         certificate.status = "processing"
 
         repository.update(certificate)
-        print(
-            f"Processing certificate {certificate.id}"
+        # Get user
+        user = user_repository.get_by_id(certificate.user_id)
+
+        if user is None:
+            print(
+                f"User {certificate.user_id} not found"
+            )
+            return
+
+        # Get event
+        event = event_repository.get_by_id(
+            certificate.event_id
         )
 
-        print(
-            f"User ID: {certificate.user_id}"
-        )
+        if event is None:
+            print(
+                f"Event {certificate.event_id} not found"
+            )
+            return
 
-        print(
-            f"Event ID: {certificate.event_id}"
-        )
-
+        print("------ Certificate Data ------")
+        print(f"Certificate ID: {certificate.id}")
+        print(f"User: {user.name}")
+        print(f"Email: {user.email}")
+        print(f"Event: {event.name}")
+        print(f"Event Date: {event.event_date}")
+        print("------------------------------")
     finally:
         db.close()
 
