@@ -75,3 +75,17 @@ class CertificateJobService:
             redis_client.rpush("certificate_queue",certificate.id,)
 
         return job
+    def get_job_status(self, job_id: int) -> Job:
+            job = self.job_repository.get_by_id(job_id)
+
+            if job is None:
+                raise ValueError("Job not found")
+
+            return job
+    def get_certificate(self, certificate_id: int) -> Certificate:
+        certificate = self.certificate_repository.get_by_id(certificate_id)
+
+        if certificate is None:
+            raise ValueError("Certificate not found")
+
+        return certificate
