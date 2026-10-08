@@ -3,10 +3,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.main import app
 from app.database.dependencies import get_db
+from app.main import app
 from app.models.base import Base
-
 
 TEST_DATABASE_URL = (
     "postgresql://postgres:postgres@localhost:5432/certificate_test_db"

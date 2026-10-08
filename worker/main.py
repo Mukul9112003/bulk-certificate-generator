@@ -1,11 +1,13 @@
 from datetime import datetime, timezone
+
 from app.certificate.template import CertificateTemplate
 from app.database.connection import SessionLocal
 from app.database.redis import redis_client
 from app.repositories.certificate_repository import CertificateRepository
 from app.repositories.event_repository import EventRepository
-from app.repositories.user_repository import UserRepository
 from app.repositories.job_repository import JobRepository
+from app.repositories.user_repository import UserRepository
+
 QUEUE_NAME = "certificate_queue"
 
 

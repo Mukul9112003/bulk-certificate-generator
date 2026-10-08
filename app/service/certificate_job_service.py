@@ -1,14 +1,14 @@
+from pydantic import EmailStr, TypeAdapter
 from sqlalchemy.orm import Session
+
 from app.database.redis import redis_client
 from app.models.certificate import Certificate
 from app.models.job import Job
 from app.models.user import User
-from pydantic import TypeAdapter, EmailStr
 from app.repositories.certificate_repository import CertificateRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.user_repository import UserRepository
-
 from app.schemas.certificate_job import CertificateJobCreate
 
 
@@ -54,8 +54,8 @@ class CertificateJobService:
 
             try:
                 email = email_validator.validate_python(recipient.email)
-            except Exception as error :
-                certificate = Certificate(job_id=job.id,event_id=event_id,user_id=None,status="failed",error_message=f"Invalid email address",)
+            except Exception:
+                certificate = Certificate(job_id=job.id,event_id=event_id,user_id=None,status="failed",error_message="Invalid email address",)
                 certificates.append(certificate)
                 continue   
             user = self.user_repository.get_by_email(

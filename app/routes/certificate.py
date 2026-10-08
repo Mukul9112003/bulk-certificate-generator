@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 from app.database.dependencies import get_db
 from app.service.certificate_job_service import CertificateJobService
 
-
 router = APIRouter(
     prefix="/certificates",
     tags=["Certificates"],

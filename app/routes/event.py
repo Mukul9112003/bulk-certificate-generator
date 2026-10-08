@@ -1,11 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from app.service.event_service import EventService
-from app.database.dependencies import get_db
-from app.models.event import Event
-from app.repositories.event_repository import EventRepository
-from app.schemas.event import EventCreate, EventResponse
 
+from app.database.dependencies import get_db
+from app.schemas.event import EventCreate, EventResponse
+from app.service.event_service import EventService
 
 event_router = APIRouter(
     prefix="/events",

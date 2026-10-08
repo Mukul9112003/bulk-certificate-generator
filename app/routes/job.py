@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.schemas.certificate_job import (CertificateListItem,CertificateListResponse,JobStatusResponse)
-from app.database.dependencies import get_db
-from app.schemas.certificate_job import JobStatusResponse
-from app.service.certificate_job_service import CertificateJobService
 
+from app.database.dependencies import get_db
+from app.schemas.certificate_job import (
+    CertificateListItem,
+    CertificateListResponse,
+    JobStatusResponse,
+)
+from app.service.certificate_job_service import CertificateJobService
 
 router = APIRouter(
     prefix="/jobs",

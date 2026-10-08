@@ -3,7 +3,6 @@ from pathlib import Path
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfgen import canvas
 
-
 OUTPUT_DIR = Path("generated_certificates")
 
 

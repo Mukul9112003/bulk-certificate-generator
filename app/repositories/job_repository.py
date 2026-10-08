@@ -1,5 +1,4 @@
-from datetime import datetime, timezone
-from sqlalchemy import select,update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models.job import Job
