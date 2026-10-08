@@ -23,7 +23,7 @@ class Certificate(Base):
 
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"),
-        nullable=False,
+        nullable=True,
     )
 
     status: Mapped[str] = mapped_column(

@@ -39,3 +39,25 @@ class CertificateRepository:
         self.db.refresh(certificate)
 
         return certificate
+    def get_by_job_id(self, job_id: int) -> list[Certificate]:
+        statement = (
+            select(Certificate)
+            .where(Certificate.job_id == job_id)
+            .order_by(Certificate.id)
+        )
+
+        result = self.db.execute(statement)
+
+        return list(result.scalars().all())
+    def get_by_event_and_user(self,event_id: int,user_id: int,) -> Certificate | None:
+        statement = (
+            select(Certificate)
+            .where(
+                Certificate.event_id == event_id,
+                Certificate.user_id == user_id,
+            ).limit(1)
+        )
+
+        result = self.db.execute(statement)
+
+        return result.scalars().first()

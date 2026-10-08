@@ -3,7 +3,7 @@ from app.database.redis import redis_client
 from app.models.certificate import Certificate
 from app.models.job import Job
 from app.models.user import User
-
+from pydantic import TypeAdapter, EmailStr
 from app.repositories.certificate_repository import CertificateRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.job_repository import JobRepository
@@ -45,11 +45,21 @@ class CertificateJobService:
 
         # 3. Resolve users
         certificates = []
-
+        email_validator = TypeAdapter(EmailStr)
         for recipient in job_data.recipients:
+            if not recipient.name or not recipient.name.strip():
+                certificate = Certificate(job_id=job.id,event_id=event_id,user_id=None,status="failed",error_message="Recipient name is required",)
+                certificates.append(certificate)
+                continue
 
+            try:
+                email = email_validator.validate_python(recipient.email)
+            except Exception as error :
+                certificate = Certificate(job_id=job.id,event_id=event_id,user_id=None,status="failed",error_message=f"Invalid email address",)
+                certificates.append(certificate)
+                continue   
             user = self.user_repository.get_by_email(
-                recipient.email
+                email
             )
 
             if user is None:
@@ -59,20 +69,25 @@ class CertificateJobService:
                 )
 
                 user = self.user_repository.create(user)
+            existing_certificate = (self.certificate_repository.get_by_event_and_user(event_id=event_id,user_id=user.id,))
 
-            certificate = Certificate(
-                job_id=job.id,
-                event_id=event_id,
-                user_id=user.id,
-                status="pending",
-            )
+            if existing_certificate is not None:
+                certificate = Certificate(job_id=job.id,event_id=event_id,user_id=user.id,status="failed",error_message="Certificate already exists for this event",)
+
+                certificates.append(certificate)
+                continue
+            certificate = Certificate(job_id=job.id,event_id=event_id,user_id=user.id,status="pending",)
 
             certificates.append(certificate)
-
         # 4. Create certificate records
         self.certificate_repository.create_many(certificates)
+        job.failed_count = sum(1 for certificate in certificates if certificate.status == "failed")
+
+        self.job_repository.update(job)
+
         for certificate in certificates:
-            redis_client.rpush("certificate_queue",certificate.id,)
+             if certificate.status == "pending":
+                redis_client.rpush("certificate_queue",certificate.id,)
 
         return job
     def get_job_status(self, job_id: int) -> Job:
@@ -89,3 +104,10 @@ class CertificateJobService:
             raise ValueError("Certificate not found")
 
         return certificate
+    def get_job_certificates(self, job_id: int) -> list[Certificate]:
+        job = self.job_repository.get_by_id(job_id)
+
+        if job is None:
+            raise ValueError("Job not found")
+
+        return self.certificate_repository.get_by_job_id(job_id)

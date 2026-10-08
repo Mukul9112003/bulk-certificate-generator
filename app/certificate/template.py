@@ -16,7 +16,6 @@ class CertificateTemplate:
         event_name: str,
         event_date: str,
     ) -> str:
-
         OUTPUT_DIR.mkdir(
             parents=True,
             exist_ok=True,

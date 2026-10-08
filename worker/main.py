@@ -67,7 +67,7 @@ def process_certificate(certificate_id: int):
         certificate.completed_at = datetime.now(timezone.utc)
 
         certificate_repository.update(certificate)
-        job.success_count += 1
+        job = job_repository.increment_success_count(certificate.job_id)
 
         processed = (job.success_count+ job.failed_count)
 
@@ -99,7 +99,7 @@ def process_certificate(certificate_id: int):
                     job = job_repository.get_by_id(certificate.job_id)
                     if job is not None:
 
-                        job.failed_count += 1
+                        job = job_repository.increment_failed_count(certificate.job_id)
 
                         processed = (job.success_count+ job.failed_count)
 
@@ -112,8 +112,8 @@ def process_certificate(certificate_id: int):
                         job_repository.update(job)
             except Exception as update_error:
                 print(f"Could not update failed certificate: "f"{update_error}")
-            finally:
-                db.close()
+    finally:
+        db.close()
 
 def main():
     print("Certificate worker started")
