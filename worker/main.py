@@ -5,7 +5,7 @@ from app.database.redis import redis_client
 from app.repositories.certificate_repository import CertificateRepository
 from app.repositories.event_repository import EventRepository
 from app.repositories.user_repository import UserRepository
-
+from app.repositories.job_repository import JobRepository
 QUEUE_NAME = "certificate_queue"
 
 
@@ -13,9 +13,11 @@ def process_certificate(certificate_id: int):
 
     db = SessionLocal()
     certificate_repository = CertificateRepository(db)
+    user_repository = UserRepository(db)
+    event_repository = EventRepository(db)
+    job_repository = JobRepository(db)
     try:
-        user_repository = UserRepository(db)
-        event_repository = EventRepository(db)
+        
         certificate = certificate_repository.get_by_id(certificate_id)
 
         if certificate is None:
@@ -23,6 +25,15 @@ def process_certificate(certificate_id: int):
                 f"Certificate {certificate_id} not found"
             )
             return
+         # 2. Get job
+        job = job_repository.get_by_id(
+            certificate.job_id
+        )
+
+        if job is None:
+            raise ValueError(
+                f"Job {certificate.job_id} not found"
+            )
          # Mark certificate as processing
         certificate.status = "processing"
 
@@ -56,12 +67,19 @@ def process_certificate(certificate_id: int):
         certificate.completed_at = datetime.now(timezone.utc)
 
         certificate_repository.update(certificate)
+        job.success_count += 1
 
+        processed = (job.success_count+ job.failed_count)
+
+        if processed == job.total_count:
+            job.status = "completed"
+            job.completed_at = datetime.now(timezone.utc)
+        else:
+            job.status = "processing"
+
+        job_repository.update(job)
         print(
             f"Certificate {certificate.id} completed"
-        )
-        print(
-            f"File: {file_path}"
         )
     except Exception as error:
 
@@ -78,14 +96,24 @@ def process_certificate(certificate_id: int):
                     certificate.error_message = str(error)
 
                     certificate_repository.update(certificate)
+                    job = job_repository.get_by_id(certificate.job_id)
+                    if job is not None:
 
+                        job.failed_count += 1
+
+                        processed = (job.success_count+ job.failed_count)
+
+                        if processed == job.total_count:
+                            job.status = "completed"
+                            job.completed_at = datetime.now(timezone.utc)
+                        else:
+                            job.status = "processing"
+
+                        job_repository.update(job)
             except Exception as update_error:
-                print(
-                    f"Could not update failed certificate: "
-                    f"{update_error}"
-                )
-    finally:
-        db.close()
+                print(f"Could not update failed certificate: "f"{update_error}")
+            finally:
+                db.close()
 
 def main():
     print("Certificate worker started")

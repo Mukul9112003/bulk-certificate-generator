@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -22,3 +23,8 @@ class JobRepository:
         result = self.db.execute(statement)
 
         return result.scalar_one_or_none()
+    def update(self, job: Job) -> Job:
+        self.db.commit()
+        self.db.refresh(job)
+
+        return job
