@@ -1,74 +1,52 @@
 # Bulk Certificate Generator
 
-A backend system for generating certificates in bulk from a predefined certificate template.
+A backend service for generating certificates in bulk for event participants.
 
-The system accepts a single certificate-generation request containing multiple recipients, creates a background job, processes certificates through a Redis queue, tracks individual certificate status, and provides APIs for monitoring job progress and retrieving generated certificates.
+The system accepts a list of recipients, creates a bulk certificate generation job, processes certificates asynchronously using Redis workers, tracks individual certificate status, and provides APIs to monitor jobs and retrieve generated certificates.
 
 ## Features
 
-- Create events.
-- Submit one bulk certificate-generation request for multiple recipients.
-- Validate recipient name and email data using Pydantic.
-- Create one certificate record per recipient.
-- Process certificate generation asynchronously using Redis and a worker.
-- Track certificate status:
-  - `pending`
-  - `processing`
-  - `completed`
-  - `failed`
-- Track job progress:
-  - total
-  - successful
-  - failed
-  - pending
-- Allow one certificate to fail without stopping other certificates in the same job.
-- Generate PDF certificates using a single predefined template.
-- Retrieve completed certificates through an API.
-- PostgreSQL for persistent application data.
-- Redis for background-job queuing.
-- Designed to support multiple worker instances.
-- Certificate files currently use local storage; the storage layer can later be moved to S3-compatible object storage/AWS S3.
+- Create events
+- Create bulk certificate generation jobs
+- Validate recipient data
+- Generate certificates asynchronously
+- Redis-based queue processing
+- Multiple worker support
+- Job progress tracking
+- Individual certificate success/failure tracking
+- Failure isolation: one bad recipient does not stop other recipients
+- Duplicate certificate prevention per event/user
+- PDF certificate retrieval
+- Automated API tests using pytest
 
 ## Architecture
 
 ```text
-                    ┌──────────────────┐
-                    │     Frontend     │
-                    └────────┬─────────┘
-                             │ HTTP
-                             ▼
-                    ┌──────────────────┐
-                    │     FastAPI      │
-                    └──────┬─────┬─────┘
-                           │     │
-                           │     ▼
-                           │  PostgreSQL
-                           │
-                           ▼
-                         Redis
-                           │
-                    certificate_queue
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-          Worker 1      Worker 2      Worker 3
-              │            │            │
-              └────────────┼────────────┘
-                           ▼
-                    PDF Generation
-                           │
-                           ▼
-                  Certificate Storage
-                    (local currently)
+Client
+   |
+   v
+FastAPI
+   |
+   +--------------------+
+   |                    |
+   v                    v
+PostgreSQL             Redis
+                         |
+                  certificate_queue
+                         |
+              +----------+----------+
+              |          |          |
+              v          v          v
+           Worker 1   Worker 2   Worker 3
+              |
+              v
+      Certificate Generation
+              |
+              v
+       Certificate Storage
 ```
 
-### Why background processing?
-
-Certificate generation can involve many recipients. Instead of making the client wait for every PDF to be generated inside the HTTP request, the API creates a job and places certificate work into Redis.
-
-Workers process individual certificates independently.
-
-This also means a failure for one recipient does not unnecessarily stop the remaining recipients.
+Multiple workers consume the same Redis queue. Each worker processes an individual certificate independently.
 
 ## Technology Stack
 
@@ -78,84 +56,66 @@ This also means a failure for one recipient does not unnecessarily stop the rema
 - SQLAlchemy
 - Redis
 - ReportLab
-- Pydantic
-- Docker / Docker Compose
-- pytest (for tests)
+- Pytest
+- Docker
+- GitHub Actions — future scope
 
 ## Project Structure
 
 ```text
 bulk-certificate-generator/
-│
 ├── app/
-│   ├── __init__.py
-│   ├── main.py
-│   │
+│   ├── certificate/
+│   │   └── template.py
+│   ├── config/
+│   │   └── settings.py
 │   ├── database/
-│   │   ├── __init__.py
 │   │   ├── connection.py
 │   │   ├── dependencies.py
 │   │   └── redis.py
-│   │
 │   ├── models/
-│   │   ├── __init__.py
 │   │   ├── base.py
 │   │   ├── event.py
 │   │   ├── user.py
 │   │   ├── job.py
 │   │   └── certificate.py
-│   │
 │   ├── repositories/
-│   │   ├── __init__.py
 │   │   ├── user_repository.py
 │   │   ├── event_repository.py
 │   │   ├── job_repository.py
 │   │   └── certificate_repository.py
-│   │
-│   ├── services/
-│   │   ├── __init__.py
-│   │   ├── event_service.py
-│   │   └── certificate_job_service.py
-│   │
 │   ├── routers/
-│   │   ├── __init__.py
 │   │   ├── event.py
 │   │   ├── certificate_job.py
 │   │   ├── job.py
 │   │   └── certificate.py
-│   │
 │   ├── schemas/
-│   │   ├── __init__.py
 │   │   ├── event.py
 │   │   └── certificate_job.py
-│   │
-│   ├── certificate/
-│   │   ├── __init__.py
-│   │   └── template.py
-│   │
-│   └── config/
-│       ├── __init__.py
-│       └── settings.py
-│
-├── worker/
-│   ├── __init__.py
+│   ├── services/
+│   │   ├── event_service.py
+│   │   └── certificate_job_service.py
 │   └── main.py
-│
-├── generated_certificates/
-│
-├── .env
-├── .env.example
-├── .gitignore
+├── worker/
+│   └── main.py
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py
+│   ├── test_event.py
+│   ├── test_certificate_job.py
+│   ├── test_job.py
+│   └── test_certificate.py
 ├── docker-compose.yml
 ├── requirements.txt
+├── .env.example
 └── README.md
 ```
 
 ## Database Design
 
-### `events`
+### Events
 
-Stores event information.
+Stores event information:
 
 ```text
 id
@@ -165,9 +125,9 @@ event_date
 created_at
 ```
 
-### `users`
+### Users
 
-Stores recipients.
+Stores certificate recipients:
 
 ```text
 id
@@ -176,11 +136,11 @@ email
 created_at
 ```
 
-The email is unique so the same recipient can be reused across different certificate jobs.
+Email identifies an existing user.
 
-### `jobs`
+### Jobs
 
-Represents one bulk certificate-generation request.
+A Job represents one bulk generation request:
 
 ```text
 id
@@ -193,11 +153,9 @@ created_at
 completed_at
 ```
 
-A job can contain many certificates.
+### Certificates
 
-### `certificates`
-
-Represents one certificate for one recipient.
+A Certificate represents one recipient's certificate:
 
 ```text
 id
@@ -211,52 +169,124 @@ created_at
 completed_at
 ```
 
-The `s3_key` field is currently used to store the generated file path. It is reserved for the future move to object storage.
+## Status Lifecycles
 
-## Job and Certificate Lifecycle
-
-### Certificate
+Certificate:
 
 ```text
 pending
-   ↓
+   |
+   v
 processing
-   ↓
-completed
+   |
+   +----> completed
+   |
+   +----> failed
 ```
 
-or:
-
-```text
-pending
-   ↓
-processing
-   ↓
-failed
-```
-
-### Job
+Job:
 
 ```text
 queued
-   ↓
+   |
+   v
 processing
-   ↓
+   |
+   v
 completed
 ```
 
-A completed job may contain both successful and failed certificates. The individual certificate records identify which certificates succeeded or failed.
+A job reaches `completed` when all certificates have reached a final state. Individual certificate records show which recipients succeeded or failed.
 
-## Setup
+## API Endpoints
 
-### 1. Clone the repository
+### Create Event
+
+```http
+POST /events
+```
+
+Example:
+
+```json
+{
+  "name": "Python Workshop",
+  "description": "Backend Workshop",
+  "event_date": "2026-10-20"
+}
+```
+
+### Create Certificate Job
+
+```http
+POST /events/{event_id}/certificate-jobs
+```
+
+Example:
+
+```json
+{
+  "recipients": [
+    {
+      "name": "Mukul",
+      "email": "mukul@example.com"
+    },
+    {
+      "name": "Rahul",
+      "email": "rahul@example.com"
+    }
+  ]
+}
+```
+
+The API creates the job and certificate records and queues pending certificate IDs in Redis.
+
+### Get Job Status
+
+```http
+GET /jobs/{job_id}
+```
+
+Example:
+
+```json
+{
+  "job_id": 1,
+  "event_id": 1,
+  "status": "processing",
+  "total": 100,
+  "successful": 75,
+  "failed": 5,
+  "pending": 20
+}
+```
+
+### Get Job Certificates
+
+```http
+GET /jobs/{job_id}/certificates
+```
+
+Returns certificate status and failure information for the job.
+
+### Retrieve Certificate
+
+```http
+GET /certificates/{certificate_id}
+```
+
+Returns the generated PDF when the certificate is completed successfully.
+
+## Running Locally
+
+### 1. Clone
 
 ```bash
-git clone <repository-url>
+git clone <your-repository-url>
 cd bulk-certificate-generator
 ```
 
-### 2. Create a virtual environment
+### 2. Virtual environment
 
 Windows:
 
@@ -265,72 +295,42 @@ python -m venv .venv
 .venv\Scripts\activate
 ```
 
-Linux/macOS:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
 ### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure environment variables
+### 4. Configure `.env`
 
-Create `.env`:
+Copy `.env.example` to `.env`:
 
 ```env
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/certificate_db
 REDIS_URL=redis://localhost:6379/0
 ```
 
-Do not commit `.env` to Git.
+Do not commit `.env`.
 
-## Start PostgreSQL and Redis
-
-Run:
+### 5. Start infrastructure
 
 ```bash
 docker compose up -d
 ```
 
-Check running containers:
-
-```bash
-docker ps
-```
-
-Expected services:
-
-```text
-certificate-postgres
-certificate-redis
-```
-
-## Run the FastAPI Application
-
-From the project root:
+### 6. Start FastAPI
 
 ```bash
 python -m uvicorn app.main:app --reload
 ```
 
-API:
+Swagger UI:
 
 ```text
-http://127.0.0.1:8000
+http://localhost:8000/docs
 ```
 
-Swagger documentation:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-## Run the Certificate Worker
+### 7. Start a worker
 
 In another terminal:
 
@@ -338,323 +338,380 @@ In another terminal:
 python -m worker.main
 ```
 
-You should see:
+Additional worker processes can be started in additional terminals. They all consume from the same Redis queue.
 
-```text
-Certificate worker started
+## Running Tests
+
+Use a separate database for automated tests.
+
+Create it once:
+
+```sql
+CREATE DATABASE certificate_test_db;
 ```
-
-The worker waits for certificate IDs from the Redis queue.
-
-## API Usage
-
-### 1. Create an Event
-
-```http
-POST /events
-```
-
-Request:
-
-```json
-{
-  "name": "Python Backend Workshop",
-  "description": "FastAPI and backend development workshop",
-  "event_date": "2026-10-10"
-}
-```
-
-Example response:
-
-```json
-{
-  "id": 1,
-  "name": "Python Backend Workshop",
-  "description": "FastAPI and backend development workshop",
-  "event_date": "2026-10-10"
-}
-```
-
-Use the actual returned event ID for subsequent requests.
-
-### 2. Create a Bulk Certificate Job
-
-```http
-POST /events/{event_id}/certificate-jobs
-```
-
-Example:
-
-```http
-POST /events/1/certificate-jobs
-```
-
-Request:
-
-```json
-{
-  "recipients": [
-    {
-      "name": "Rahul Sharma",
-      "email": "rahul.sharma@example.com"
-    },
-    {
-      "name": "Amit Kumar",
-      "email": "amit.kumar@example.com"
-    },
-    {
-      "name": "Priya Singh",
-      "email": "priya.singh@example.com"
-    }
-  ]
-}
-```
-
-Example response:
-
-```json
-{
-  "job_id": 1,
-  "event_id": 1,
-  "status": "queued",
-  "total": 3
-}
-```
-
-The API returns immediately while the workers process the certificates in the background.
-
-### 3. Check Job Progress
-
-```http
-GET /jobs/{job_id}
-```
-
-Example:
-
-```http
-GET /jobs/1
-```
-
-Example response while processing:
-
-```json
-{
-  "job_id": 1,
-  "event_id": 1,
-  "status": "processing",
-  "total": 3,
-  "successful": 1,
-  "failed": 0,
-  "pending": 2
-}
-```
-
-Example completed response:
-
-```json
-{
-  "job_id": 1,
-  "event_id": 1,
-  "status": "completed",
-  "total": 3,
-  "successful": 2,
-  "failed": 1,
-  "pending": 0
-}
-```
-
-### 4. Retrieve a Certificate
-
-```http
-GET /certificates/{certificate_id}
-```
-
-Example:
-
-```http
-GET /certificates/1
-```
-
-If the certificate is completed, the API returns the generated PDF.
-
-If the certificate is still processing, the API returns a `409` response.
-
-If the certificate does not exist, the API returns `404`.
-
-## Validation and Failure Handling
-
-Recipient data is validated before processing.
-
-For example:
-
-```json
-{
-  "recipients": []
-}
-```
-
-is rejected.
-
-Invalid email addresses are also rejected.
-
-During background processing, certificates are handled independently.
-
-For example:
-
-```text
-5 certificates
-
-Worker processing:
-
-Certificate 1 → completed
-Certificate 2 → completed
-Certificate 3 → failed
-Certificate 4 → completed
-Certificate 5 → completed
-```
-
-The job can still finish with:
-
-```text
-total = 5
-successful = 4
-failed = 1
-```
-
-The failure is stored in the individual certificate's `error_message`.
-
-## Multiple Workers
-
-The system is designed around a shared Redis queue.
-
-Multiple worker processes can consume from:
-
-```text
-certificate_queue
-```
-
-For example:
-
-```text
-Redis
-  │
-  ├── Worker 1
-  ├── Worker 2
-  └── Worker 3
-```
-
-A worker takes one certificate ID from the queue and processes it.
-
-This allows certificate generation to scale horizontally by running additional worker instances instead of creating one container per certificate.
-
-## Certificate Storage
-
-The current implementation generates PDFs in:
-
-```text
-generated_certificates/
-```
-
-The database stores the generated file path in `certificates.s3_key`.
-
-This naming is intentional for future object-storage support.
-
-### Future S3 migration
-
-The planned architecture is:
-
-```text
-Worker
-   ↓
-Generate PDF
-   ↓
-Object Storage
-   ↓
-S3
-```
-
-The application can later replace local file storage with AWS S3 or another S3-compatible object-storage service without changing the core job-processing model.
-
-## Testing
 
 Run:
 
 ```bash
-pytest
+python -m pytest -v
 ```
 
-Tests should cover:
+Tests should never use the production database.
 
-- Creating a generation job.
-- Input validation.
-- Certificate generation.
-- Job status/progress.
-- Individual certificate failure.
-- Certificate retrieval.
+The test environment should point to `certificate_test_db` and should not use the normal development database.
+
+## Testing Strategy
+
+The test suite covers:
+
+- Event creation
+- Certificate job creation
+- Recipient validation
+- Invalid recipient handling
+- Job status
+- Certificate listing
+- Certificate retrieval
+- Failure isolation
+
+Example failure isolation:
+
+```text
+Recipient A -> completed
+Recipient B -> failed
+Recipient C -> completed
+```
+
+Recipient B failing does not stop A or C.
+
+## Asynchronous Processing
+
+The API does not wait for every PDF to be generated.
+
+```text
+Client
+  |
+  v
+Create Job
+  |
+  v
+Create Certificate Records
+  |
+  v
+Push Pending Certificate IDs to Redis
+  |
+  v
+Return Job ID
+```
+
+Workers then:
+
+```text
+BLPOP Redis Queue
+      |
+      v
+Get Certificate
+      |
+      v
+Mark processing
+      |
+      v
+Generate PDF
+      |
+      +----> completed
+      |
+      +----> failed
+```
+
+This keeps the API responsive during bulk generation.
+
+## Multiple Workers
+
+All workers consume the same Redis queue:
+
+```text
+                 Redis Queue
+                     |
+          +----------+----------+
+          |          |          |
+          v          v          v
+       Worker 1   Worker 2   Worker 3
+          |          |          |
+          v          v          v
+       Cert 1     Cert 2     Cert 3
+```
+
+Each worker waits for work using Redis `BLPOP`.
+
+## Failure Isolation
+
+Each certificate is processed independently.
+
+For example:
+
+```text
+Certificate 1 -> completed
+Certificate 2 -> completed
+Certificate 3 -> failed
+Certificate 4 -> completed
+Certificate 5 -> completed
+```
+
+Final job state:
+
+```text
+total      = 5
+successful = 4
+failed     = 1
+pending    = 0
+```
+
+The individual certificate stores the error message.
+
+## Duplicate Certificate Handling
+
+Users are identified by email.
+
+Before creating a certificate, the service checks for an existing certificate using:
+
+```text
+event_id + user_id
+```
+
+If one already exists, the new certificate record is marked as failed with an appropriate error message instead of generating another certificate.
+
+## Layered Architecture
+
+```text
+Router
+   |
+   v
+Service
+   |
+   v
+Repository
+   |
+   v
+Database
+```
+
+### Router
+
+Handles HTTP requests and responses.
+
+### Service
+
+Contains business rules such as:
+
+- recipient validation
+- user lookup/creation
+- duplicate checks
+- job creation
+- queueing
+
+### Repository
+
+Handles database operations such as:
+
+- create user
+- find user by email
+- create job
+- update job
+- create certificates
+- retrieve certificates
 
 ## Design Decisions
 
-### Why FastAPI?
+### Why asynchronous processing?
 
-FastAPI provides a simple API layer with automatic validation and interactive Swagger documentation.
+Certificate generation is a bulk operation. Generating many PDFs inside the HTTP request would keep the request open unnecessarily.
+
+The API therefore creates the job and queues work while workers generate certificates in the background.
 
 ### Why PostgreSQL?
 
-PostgreSQL is used as the relational database for persistent event, user, job, and certificate information.
+The system has relational entities and foreign-key relationships:
+
+```text
+Event
+  |
+  +---- Job
+          |
+          +---- Certificate
+                    |
+                    +---- User
+```
+
+PostgreSQL provides persistence, transactions, foreign keys, and relational querying.
 
 ### Why Redis?
 
-Redis provides a simple queue for background certificate-processing work.
+Redis provides a lightweight queue between the API and workers. It also allows multiple workers to consume pending certificate IDs concurrently.
 
-### Why background workers?
+### Why ReportLab?
 
-Bulk certificate generation should not block the HTTP request while potentially generating many PDFs.
+ReportLab generates the certificate PDFs programmatically from the predefined certificate template.
 
-### Why multiple workers?
+### Why Job and Certificate are separate?
 
-Multiple workers can consume the same Redis queue concurrently, allowing the system to process many certificates more efficiently.
+A Job represents the complete bulk request, while a Certificate represents one recipient.
 
-### Why one certificate record per recipient?
+```text
+Job 10
+├── Certificate 101
+├── Certificate 102
+├── Certificate 103
+└── Certificate 104
+```
 
-Each certificate needs its own lifecycle and failure state. This allows one recipient's failure to be recorded without stopping the other recipients.
+This allows per-recipient status and failure tracking.
 
-### Why local storage initially?
+## Environment Separation
 
-The assignment can be completed and demonstrated without depending on a cloud storage service. The storage design leaves room for a later migration to S3.
+Development and automated tests use different databases:
+
+```text
+Development
+    |
+    v
+certificate_db
+
+Automated Tests
+    |
+    v
+certificate_test_db
+```
+
+Production must never be used as the automated test database.
+
+## CI/CD — Future Scope
+
+CI/CD is not part of the current implementation.
+
+A future GitHub Actions pipeline can automatically:
+
+```text
+Developer
+   |
+   v
+git push / Pull Request
+   |
+   v
+GitHub Actions
+   |
+   +--> Setup Python
+   |
+   +--> Install dependencies
+   |
+   +--> Start PostgreSQL
+   |
+   +--> Start Redis
+   |
+   +--> Run pytest
+   |
+   v
+Tests pass?
+   /       \
+ No         Yes
+ |           |
+Stop      Continue
+             |
+             v
+       Build Docker image
+             |
+             v
+       Push to registry
+             |
+             v
+       Deploy to AWS
+```
+
+The CI pipeline should prevent deployment when automated tests fail.
+
+## Current Storage
+
+Generated PDFs are currently stored locally.
+
+The certificate record stores the generated file path in the `s3_key` field.
+
+Amazon S3 can replace local storage later without changing the overall job-processing design.
+
+## Security
+
+- `.env` is excluded from Git.
+- Database and Redis configuration comes from environment variables.
+- Production credentials should be stored in a secrets manager.
+- Authentication and authorization should be added before public deployment.
+- Recipient input is validated before generation.
 
 ## Future Improvements
 
-Possible improvements include:
+- Amazon S3 certificate storage
+- Alembic migrations
+- Authentication and authorization
+- Retry mechanism
+- Structured logging
+- Monitoring and metrics
+- Frontend dashboard
+- Production deployment
+- Rate limiting
+- More robust worker lifecycle management
 
-- S3/object-storage integration.
-- Certificate list endpoint for frontend selection.
-- Frontend dashboard for job progress.
-- Download buttons for completed certificates.
-- Retry support for failed certificates.
-- More reliable queue acknowledgement/recovery.
-- Database transactions/unit-of-work for stronger consistency.
-- Atomic job counter updates for concurrent workers.
-- Authentication and authorization.
-- Dockerized FastAPI and worker services.
-- Automated CI/CD with GitHub Actions.
+## End-to-End Flow
 
-## Assignment Alignment
+```text
+1. Client creates event
+          |
+          v
+2. Client submits recipients
+          |
+          v
+3. API creates Job
+          |
+          v
+4. Recipients are validated
+          |
+          v
+5. Users are found/created
+          |
+          v
+6. Certificate records are created
+          |
+          v
+7. Pending certificate IDs go to Redis
+          |
+          v
+8. API returns Job ID
+          |
+          v
+9. Workers consume IDs
+          |
+          v
+10. Worker generates PDF
+          |
+          v
+11. Certificate becomes completed/failed
+          |
+          v
+12. Job counters are updated
+          |
+          v
+13. Client checks job status
+          |
+          v
+14. Client retrieves completed certificate
+```
 
-The implementation addresses the core assignment requirements:
+## Project Status
 
-- Accept certificate generation requests.
-- Validate recipient data.
-- Generate certificates using a predefined template.
-- Track generation status.
-- Track job progress/results.
-- Retrieve generated certificates.
-- Support bulk generation.
-- Allow individual certificate failures without stopping the entire job.
-- Provide tests.
-- Document setup, execution, API usage, and design decisions.
+Core backend functionality includes:
 
-## Important Note
+- Bulk job creation
+- PostgreSQL persistence
+- Redis asynchronous processing
+- Multiple worker support
+- Per-recipient failure isolation
+- Job progress tracking
+- Certificate retrieval
+- Automated testing foundation
 
-The system is intentionally structured so that the backend, worker processing, storage, and frontend can evolve independently.
-
-The current implementation focuses on completing the core backend workflow first. Frontend, multiple worker deployment, and S3 storage can be added without changing the fundamental bulk-job model.
+CI/CD, S3 storage, authentication, monitoring, and deployment automation are documented as future enhancements.
